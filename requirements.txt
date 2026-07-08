@@ -68,7 +68,10 @@ mlflow                     # MLflow 실험 추적 + 모델 아티팩트 관리
 # ───────────────────────────────────────────────
 # ML 모델 학습 추가 필
 # ───────────────────────────────────────────────
-
+numpy==1.26.4
+scipy==1.11.4
+lightgbm==4.6.0
+xgboost==3.2.0
 
 
 # pip freeze > ~/hangang_parking/requirements.txt
