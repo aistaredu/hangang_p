@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<!--
+=================================================================
+static/predict.html — 주차장 혼잡도 예측 화면 (5회차 완성)
+=================================================================
+📌 이 파일의 역할:
+  주차장을 선택하고 날짜를 입력하면
+  POST /predict API를 호출해 ML 혼잡도 예측 결과를
+  Progress Bar와 카드로 시각화합니다.
+
+📌 사용하는 Bootstrap 5 컴포넌트:
+  ① Navbar          : 상단 네비게이션 (로그인 상태 전환)
+  ② Container + Grid: 레이아웃 (row/col 반응형 격자)
+  ③ Form Select     : 주차장 선택 드롭다운
+  ④ Form Control    : 날짜 입력 필드 (type="date")
+  ⑤ Button          : 예측 실행 버튼
+  ⑥ Card            : 예측 결과 표시 카드
+  ⑦ Progress Bar    : 혼잡도 시각화 막대
+  ⑧ Badge           : 혼잡도 단계 뱃지 (여유/보통/혼잡/매우혼잡)
+  ⑨ Spinner         : API 호출 중 로딩 표시
+  ⑩ Alert           : 오류 메시지 박스
+
+📌 JavaScript 실행 순서:
+  DOMContentLoaded 이벤트
+    → initPage()        : URL 파라미터에서 lot_id 읽어서 드롭다운 선택
+    → 날짜 기본값 설정  : 오늘 날짜를 input[type=date]에 자동 입력
+    → 이벤트 등록       : 예측 버튼 클릭 + Enter 키
+      → handlePredict() : 입력값 검증 → API 호출 → 결과 렌더링
+        → callPredictAPI()   : POST /predict fetch
+        → renderResult()     : 카드 + Progress Bar + Badge 업데이트
+=================================================================
+-->
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>예측하기 — 한강공원 주차장</title>
+
+    <!-- Bootstrap 5 CSS CDN -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
+          rel="stylesheet">
+
+    <style>
+        body { background-color: #f8f9fa; }
+
+        /* ⑦ Progress Bar 커스텀 스타일 */
+        .progress {
+            height: 28px;          /* 기본(16px)보다 두껍게 */
+            border-radius: 14px;   /* 양 끝 둥글게 */
+        }
+        .progress-bar {
+            /* transition: 너비가 변할 때 0.6초 동안 애니메이션 */
+            transition: width 0.6s ease, background-color 0.4s ease;
+            font-size: 0.9rem;
+            font-weight: bold;
+        }
+
+        /* ⑥ 결과 카드 — 기본 숨김 상태 */
+        #resultCard {
+            display: none;  /* JS로 block으로 전환 */
+        }
+
+        /* 혼잡도 수치 강조 */
+        .occupancy-number {
+            font-size: 3rem;
+            font-weight: 800;
+            line-height: 1;
+        }
+    </style>
+</head>
+<body>
+
+<!-- ===========================================================
+     ① Bootstrap 컴포넌트: Navbar
+     navbar-expand-lg : lg(992px) 이상에서 메뉴 가로 펼침
+     navbar-dark      : 어두운 배경용 흰색 텍스트
+     bg-primary       : Bootstrap 파란색 배경
+     =========================================================== -->
+<!-- navbar: layout.js가 채워 넣음 (모든 페이지 공통) -->
+<div id="navbar-placeholder"></div>
+
+
+<!-- ===========================================================
+     메인 콘텐츠
+     ② Bootstrap 컴포넌트: Container + Grid (row/col)
+     container : 양쪽 여백 자동 조정 + 최대 너비 제한
+     mt-4      : margin-top 4단계 = 24px
+     =========================================================== -->
+<div class="container mt-4" style="max-width: 680px;">
+    <!--
+        max-width: 680px: 예측 폼은 좁은 너비가 더 보기 좋습니다.
+        Bootstrap container의 기본 최대 너비보다 좁게 제한합니다.
+    -->
+
+    <!-- 페이지 제목 -->
+    <div class="mb-4">
+        <h2 class="fw-bold">🔍 붐빔 예측</h2>
+        <p class="text-muted mb-0">
+            주차장과 날짜를 선택하면 ML 모델이 붐빔 정도(회전율)를 예측합니다
+        </p>
+    </div>
+
+    <!-- ===========================================================
+         입력 폼 카드
+         ⑥ Bootstrap 컴포넌트: Card (입력 폼을 감싸는 카드)
+         card      : 흰 배경 + 테두리 + 둥근 모서리
+         shadow-sm : 약한 그림자 (입체감)
+         =========================================================== -->
+    <div class="card shadow-sm mb-4">
+        <div class="card-body p-4">
+            <!-- card-body : 카드 내부 여백(padding) 자동 적용 -->
+
+            <!-- ===========================================================
+                 ③ Bootstrap 컴포넌트: Form Select (드롭다운 선택)
+                 form-label   : label 스타일 (block + 하단 여백)
+                 form-select  : <select> 스타일 (테두리, padding 등 자동)
+                 mb-3         : 폼 그룹 아래 여백 3단계 = 16px
+                 =========================================================== -->
+            <div class="mb-3">
+                <label class="form-label fw-bold" for="lotSelect">
+                    🅿 주차장 선택
+                </label>
+                <!--
+                    form-select: Bootstrap이 적용하는 드롭다운 스타일
+                    id="lotSelect": JS에서 document.getElementById()로 접근
+                    옵션은 JS의 populateLotSelect()에서 API 호출로 동적 생성
+                -->
+                <select class="form-select" id="lotSelect">
+                    <option value="">-- 주차장을 선택하세요 --</option>
+                    <!-- GET /parking-lots API 응답으로 옵션 동적 생성 -->
+                </select>
+            </div>
+
+            <!-- ===========================================================
+                 ④ Bootstrap 컴포넌트: Form Control (날짜 입력)
+                 form-control : input 스타일 (테두리, padding, focus 효과)
+                 type="date"  : 날짜 선택 UI를 브라우저가 자동 제공
+                 =========================================================== -->
+            <div class="mb-4">
+                <label class="form-label fw-bold" for="dateInput">
+                    📅 예측 날짜
+                </label>
+                <!--
+                    type="date": 브라우저가 날짜 선택 캘린더를 제공
+                    value는 JS에서 오늘 날짜로 자동 설정
+                    min/max는 JS에서 동적으로 설정 (오늘 기준 ±1년)
+                -->
+                <input type="date"
+                       class="form-control"
+                       id="dateInput">
+                <div class="form-text text-muted">
+                    <!-- form-text : 입력 필드 아래 보조 설명 텍스트 -->
+                    오늘부터 최대 1년 후까지 예측 가능합니다
+                </div>
+            </div>
+
+            <!-- ===========================================================
+                 ⑤ Bootstrap 컴포넌트: Button (예측 실행)
+                 btn         : 버튼 기본 스타일
+                 btn-primary : 파란색 배경 버튼
+                 w-100       : width 100% (컨테이너 전체 너비)
+                 fw-bold     : 굵은 글씨
+                 =========================================================== -->
+            <button class="btn btn-primary w-100 fw-bold py-2"
+                    id="predictBtn">
+                <!-- py-2: 상하 padding 2단계 = 버튼 높이 증가 -->
+                🔍 붐빔 예측하기
+            </button>
+
+            <!-- ⑩ Alert: 오류 메시지 (기본 숨김) -->
+            <div class="alert alert-danger mt-3 d-none" id="errorAlert">
+                <!--
+                    alert        : 알림 박스 기본 스타일
+                    alert-danger : 빨간 배경 (오류 상황)
+                    d-none       : display:none (기본 숨김, JS로 표시)
+                    mt-3         : 버튼과의 간격
+                -->
+            </div>
+        </div>
+    </div>
+
+
+    <!-- ===========================================================
+         ⑨ Spinner: 예측 중 로딩 표시 (기본 숨김)
+         spinner-border  : 회전하는 원형 테두리 애니메이션
+         text-primary    : 파란색
+         =========================================================== -->
+    <div class="text-center py-4 d-none" id="loadingArea">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">예측 중...</span>
+        </div>
+        <p class="mt-2 text-muted">ML 모델이 붐빔 정도를 예측하는 중...</p>
+    </div>
+
+
+    <!-- ===========================================================
+         ⑥ Bootstrap 컴포넌트: Card (예측 결과 카드, 기본 숨김)
+         display:none → JS에서 block으로 전환
+         =========================================================== -->
+    <div class="card shadow-sm" id="resultCard">
+        <div class="card-body p-4">
+
+            <!-- 결과 헤더 -->
+            <div class="d-flex align-items-center justify-content-between mb-3">
+                <div>
+                    <!-- 주차장명: JS로 동적 설정 -->
+                    <h5 class="fw-bold mb-0" id="resultLotName">—</h5>
+                    <!-- 날짜 + 용량: JS로 동적 설정 -->
+                    <small class="text-muted" id="resultInfo">—</small>
+                </div>
+                <!--
+                    ⑧ Bootstrap 컴포넌트: Badge (혼잡도 단계)
+                    badge     : 뱃지 기본 스타일 (작은 둥근 사각형)
+                    fs-6      : font-size 6단계 (1rem)
+                    배경색은 JS에서 혼잡도에 따라 동적 설정
+                -->
+                <span class="badge fs-6" id="resultBadge">—</span>
+            </div>
+
+            <!-- 혼잡도 수치 -->
+            <div class="text-center mb-3">
+                <div class="occupancy-number" id="resultPct">—</div>
+                <div class="text-muted small mt-1">예측 회전율(이용률)</div>
+            </div>
+
+            <!-- ===========================================================
+                 ⑦ Bootstrap 컴포넌트: Progress Bar (혼잡도 막대)
+                 progress     : Progress Bar 컨테이너 (회색 배경 트랙)
+                 progress-bar : 실제 채워지는 막대
+                 aria-*       : 스크린리더 접근성 속성
+                 =========================================================== -->
+            <div class="progress mb-3">
+                <div class="progress-bar"
+                     id="resultBar"
+                     role="progressbar"
+                     aria-valuenow="0"
+                     aria-valuemin="0"
+                     aria-valuemax="100"
+                     style="width: 0%">
+                    <!--
+                        width: 0% → JS에서 혼잡도%로 동적 설정
+                        예) style="width: 75%" → 75% 너비로 채워짐
+
+                        aria-valuenow : 현재 값 (스크린리더용)
+                        aria-valuemin : 최솟값 (0)
+                        aria-valuemax : 최댓값 (100)
+                    -->
+                </div>
+            </div>
+
+            <!-- 잔여 면수 정보 -->
+            <div class="row text-center g-3">
+                <!-- g-3: 셀 간격 3단계 = 16px -->
+                <div class="col-6">
+                    <!-- col-6: 2칸으로 나누기 (6+6=12) -->
+                    <div class="border rounded p-2">
+                        <!-- border rounded : 테두리 + 둥근 모서리 -->
+                        <div class="fw-bold fs-4" id="resultSpaces">—</div>
+                        <div class="text-muted small">잔여 자리(추정)</div>
+                    </div>
+                </div>
+                <div class="col-6">
+                    <div class="border rounded p-2">
+                        <div class="fw-bold fs-4" id="resultCapacity">—</div>
+                        <div class="text-muted small">총 주차면수</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 예약하기 버튼 (로그인 상태일 때만 활성화) -->
+            <div class="mt-3">
+                <button class="btn btn-outline-primary w-100"
+                        id="reserveBtn">
+                    📋 이 날짜로 예약하기
+                </button>
+            </div>
+
+        </div><!-- /card-body -->
+    </div><!-- /resultCard -->
+
+</div><!-- /container -->
+
+
+<!-- Footer -->
+<!-- footer: layout.js가 채워 넣음 (모든 페이지 공통) -->
+<div id="footer-placeholder"></div>
+
+
+<!--
+    Bootstrap 5 JS CDN
+    반드시 </body> 바로 위에 위치해야 합니다.
+    bundle.min.js: Popper.js 포함 (Modal, Tooltip 등 동작에 필요)
+-->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js">
+</script>
+
+<!--
+    공통 API 유틸리티 (api.js)
+    Bootstrap JS 이후에 로드해야 합니다.
+    제공 함수: apiGet, apiPost, saveToken, getToken, removeToken, isLoggedIn
+-->
+<script src="/static/js/api.js"></script>
+<!-- 공통 navbar/footer (api.js 이후 로드) -->
+<script src="/static/js/layout.js"></script>
+
+<script>
+// =============================================================
+// 전역 변수 — 현재 예측 결과 저장 (예약 버튼에서 사용)
+// =============================================================
+let currentPrediction = null;
+// currentPrediction: 마지막 예측 응답 객체
+// [변경] 응답: { lot_id, lot_name, target_date, capacity, predicted_count, turnover_pct, congestion, remaining_spaces }
+
+
+// =============================================================
+// initPage() — 페이지 초기화
+// =============================================================
+// 📌 역할:
+//   1) GET /parking-lots 로 드롭다운 옵션 동적 생성
+//   2) URL 파라미터 lot_id 가 있으면 해당 주차장 자동 선택
+//      예) predict.html?lot_id=1 → 뚝섬 자동 선택
+//   3) 날짜 기본값을 오늘로 설정
+//   4) 날짜 범위 제한 (오늘 ~ 1년 후)
+// =============================================================
+async function initPage() {
+    await populateLotSelect();  // 드롭다운 옵션 생성 (await: API 응답 기다림)
+    setDefaultDate();           // 날짜 기본값 설정
+    setDateRange();             // 날짜 선택 범위 제한
+    checkUrlParam();            // URL 파라미터로 주차장 자동 선택
+    // updateNavbar()는 layout.js가 자동 처리 (중복 호출 불필요)
+}
+
+
+// =============================================================
+// populateLotSelect() — 드롭다운 옵션 동적 생성
+// =============================================================
+// 📌 역할:
+//   GET /parking-lots?page=1&size=11 로 전체 주차장을 가져와서
+//   ③ Form Select의 <option> 목록을 동적으로 생성합니다.
+// =============================================================
+async function populateLotSelect() {
+    try {
+        // api.js의 apiGet() 함수 사용
+        const data = await apiGet("/parking-lots?page=1&size=11");
+        // 응답: { total: 11, page: 1, size: 11, items: [...] }
+
+        const select = document.getElementById("lotSelect");
+
+        // 각 주차장을 <option> 으로 추가
+        data.items.forEach(lot => {
+            const opt   = document.createElement("option");
+            opt.value   = lot.id;          // value: API 요청에 사용될 lot_id
+            opt.text    = `${lot.lot_name} (총 ${lot.capacity}면)`;
+            select.appendChild(opt);
+        });
+
+    } catch (error) {
+        // 서버 미연결 등 오류 시 기본 옵션 유지
+        console.error("주차장 목록 로드 실패:", error.message);
+    }
+}
+
+
+// =============================================================
+// setDefaultDate() — 날짜 기본값 오늘로 설정
+// =============================================================
+function setDefaultDate() {
+    const today = new Date();
+    // toISOString(): "2025-08-15T00:00:00.000Z" 형태
+    // .split("T")[0]: "2025-08-15" 만 추출
+    // input[type=date]의 value 형식: YYYY-MM-DD
+    document.getElementById("dateInput").value = today.toISOString().split("T")[0];
+}
+
+
+// =============================================================
+// setDateRange() — 날짜 선택 가능 범위 제한
+// =============================================================
+function setDateRange() {
+    const today   = new Date();
+    const maxDate = new Date(today);
+    maxDate.setFullYear(today.getFullYear() + 1);  // 1년 후
+
+    const dateInput = document.getElementById("dateInput");
+    // min 속성: 선택 가능한 최소 날짜 (오늘)
+    dateInput.min = today.toISOString().split("T")[0];
+    // max 속성: 선택 가능한 최대 날짜 (1년 후)
+    dateInput.max = maxDate.toISOString().split("T")[0];
+}
+
+
+// =============================================================
+// checkUrlParam() — URL 파라미터로 주차장 자동 선택
+// =============================================================
+// 📌 index.html 카드 클릭 시 ?lot_id=N 파라미터로 이동
+//    이 함수가 파라미터를 읽어서 드롭다운을 자동 선택합니다.
+// =============================================================
+function checkUrlParam() {
+    // URLSearchParams: URL의 쿼리 파라미터를 파싱하는 Web API
+    // window.location.search: "?lot_id=1" 부분
+    const params = new URLSearchParams(window.location.search);
+    const lotId  = params.get("lot_id");  // "lot_id" 파라미터 값 추출 ("1", "2" 등)
+
+    if (lotId) {
+        const select  = document.getElementById("lotSelect");
+        select.value  = lotId;  // 드롭다운에서 해당 lot_id 선택
+    }
+}
+
+
+// =============================================================
+// handlePredict() — 예측 버튼 클릭 처리
+// =============================================================
+// 📌 역할:
+//   1) 입력값 검증 (주차장, 날짜 선택 여부)
+//   2) POST /predict API 호출
+//   3) 결과 카드 렌더링
+// =============================================================
+async function handlePredict() {
+    const lotId = document.getElementById("lotSelect").value;
+    const date  = document.getElementById("dateInput").value;
+
+    // ── 클라이언트 유효성 검사 ────────────────────────────────
+    if (!lotId) {
+        showError("주차장을 선택해주세요.");
+        return;
+    }
+    if (!date) {
+        showError("날짜를 선택해주세요.");
+        return;
+    }
+
+    // 오류 메시지 초기화
+    hideError();
+
+    // ── 로딩 표시 ─────────────────────────────────────────────
+    // ⑨ Spinner 표시, ⑥ 결과 카드 숨김
+    showLoading(true);
+
+    try {
+        // POST /predict 호출
+        const result = await callPredictAPI(parseInt(lotId), date);
+
+        // 전역 변수에 저장 (예약 버튼에서 사용)
+        currentPrediction = result;
+
+        // 결과 카드 렌더링
+        renderResult(result);
+
+    } catch (error) {
+        // 503: ML 모델 미로드 / 404: 주차장 없음 등
+        showError(error.message || "예측에 실패했습니다. 서버 상태를 확인하세요.");
+    } finally {
+        // 성공/실패 무관하게 항상 로딩 숨김
+        showLoading(false);
+    }
+}
+
+
+// =============================================================
+// callPredictAPI(lotId, date) — POST /predict 호출
+// =============================================================
+async function callPredictAPI(lotId, date) {
+    // api.js의 apiPost() 사용
+    // body: PredictRequest 형식 { lot_id: int, target_date: "YYYY-MM-DD" }
+    const result = await apiPost("/predict", {
+        lot_id     : lotId,
+        target_date: date,
+    });
+    // 응답: PredictResponse
+    // [변경] 응답: { lot_id, lot_name, target_date, capacity, predicted_count, turnover_pct, congestion, remaining_spaces }
+    return result;
+}
+
+
+// =============================================================
+// renderResult(result) — 예측 결과 UI 렌더링
+// =============================================================
+// ⚠️ [변경] 혼잡도(%) 표시에서 '회전율 + 붐빔 4단계 등급' 표시로 바뀌었다.
+// 📌 붐빔 등급별 색상 (predict/admin 공통 기준):
+//   여유     : 초록 (bg-success)   — 회전율 ~100%
+//   보통     : 파랑 (bg-primary)   — ~200%
+//   붐빔     : 노랑 (bg-warning)   — ~350%
+//   매우 붐빔 : 빨강 (bg-danger)    — 그 이상
+// =============================================================
+function renderResult(result) {
+    // ⚠️ [변경] 응답 필드가 바뀜:
+    //   predicted_count(예측 이용대수), turnover_pct(회전율%),
+    //   congestion(붐빔 4단계), remaining_spaces(잔여 추정 / 회전 시 null)
+    const turnover = result.turnover_pct;
+    const level    = result.congestion;   // "여유" / "보통" / "붐빔" / "매우 붐빔"
+
+    // ── 붐빔 등급별 색상 매핑 ────────────────────────────────
+    let colorClass, badgeClass;
+    if      (level === "여유")   { colorClass = "bg-success"; badgeClass = "text-bg-success"; }
+    else if (level === "보통")   { colorClass = "bg-primary"; badgeClass = "text-bg-primary"; }
+    else if (level === "붐빔")   { colorClass = "bg-warning"; badgeClass = "text-bg-warning"; }
+    else                         { colorClass = "bg-danger";  badgeClass = "text-bg-danger";  }
+
+    // ── 기본 정보 ────────────────────────────────────────────
+    document.getElementById("resultLotName").textContent = result.lot_name;
+    document.getElementById("resultInfo").textContent =
+        `${result.target_date} · 총 ${result.capacity}면`;
+
+    // ── 회전율 수치 표시 ─────────────────────────────────────
+    document.getElementById("resultPct").textContent = `${turnover}%`;
+    document.getElementById("resultPct").style.color =
+        level === "여유" ? "#198754" : level === "보통" ? "#0d6efd"
+      : level === "붐빔" ? "#ffc107" : "#dc3545";
+
+    // ── Badge: 붐빔 등급 ─────────────────────────────────────
+    const badge = document.getElementById("resultBadge");
+    badge.textContent = level;
+    badge.className   = `badge fs-6 ${badgeClass}`;
+
+    // ── Progress Bar ─────────────────────────────────────────
+    // ⚠️ [변경] 회전율은 100%를 넘을 수 있어 막대 너비는 100%에서 캡을 씌우고,
+    //   막대 안 텍스트에는 실제 회전율(예: 320%)을 그대로 보여준다.
+    const barPct = Math.min(turnover, 100);   // 막대 너비는 최대 100%
+    const bar = document.getElementById("resultBar");
+    bar.style.width = `${barPct}%`;
+    bar.setAttribute("aria-valuenow", barPct);
+    bar.className   = `progress-bar ${colorClass}`;
+    bar.textContent = `${turnover}%`;         // 텍스트는 실제 회전율(예: 320%)
+
+    // ── 잔여 자리 / 예측 이용대수 ────────────────────────────
+    // ⚠️ [변경] remaining_spaces가 null이면(회전율 100% 초과) '추정 불가'로 표시.
+    //   이 데이터로는 순간 점유를 알 수 없어 회전이 일어난 날의 잔여는 낼 수 없다.
+    const spacesEl = document.getElementById("resultSpaces");
+    if (result.remaining_spaces === null || result.remaining_spaces === undefined) {
+        spacesEl.textContent = "추정 불가";
+        spacesEl.title = "하루 중 회전이 일어나 정확한 잔여 자리를 알 수 없습니다";
+    } else {
+        spacesEl.textContent = `약 ${result.remaining_spaces}면`;
+    }
+    // ⚠️ [변경] 총 면수 자리에 '예측 이용대수'를 함께 보여준다
+    document.getElementById("resultCapacity").textContent =
+        `${result.capacity}면 (예측 이용 ${result.predicted_count.toLocaleString()}대)`;
+
+    // ── 결과 카드 표시 ───────────────────────────────────────
+    const card = document.getElementById("resultCard");
+    card.style.display = "block";
+    card.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+
+// =============================================================
+// 유틸리티 함수들
+// =============================================================
+
+// ⑨ Spinner 표시/숨김
+function showLoading(show) {
+    document.getElementById("loadingArea").classList.toggle("d-none", !show);
+    // classList.toggle("d-none", 조건):
+    //   조건이 true → d-none 추가 (숨김)
+    //   조건이 false → d-none 제거 (표시)
+    document.getElementById("predictBtn").disabled = show;
+    // 버튼 비활성화: 중복 클릭 방지
+}
+
+// ⑩ Alert 오류 메시지 표시
+function showError(message) {
+    const alert = document.getElementById("errorAlert");
+    alert.textContent = `⚠️ ${message}`;
+    alert.classList.remove("d-none");  // 표시
+}
+
+// ⑩ Alert 오류 메시지 숨김
+function hideError() {
+    document.getElementById("errorAlert").classList.add("d-none");
+}
+
+// Navbar 상태 전환은 공통 파일(layout.js)로 이동했습니다.
+
+
+// =============================================================
+// DOMContentLoaded — 페이지 초기화
+// =============================================================
+// 📌 DOMContentLoaded:
+//   HTML 파싱이 완료되어 모든 DOM 요소에 접근 가능한 시점
+//   이미지/폰트 로드를 기다리지 않으므로 window.load보다 빠름
+// =============================================================
+document.addEventListener("DOMContentLoaded", () => {
+    // 페이지 초기화 (드롭다운 옵션 생성 + URL 파라미터 처리 + 날짜 설정)
+    initPage();
+
+    // 예측 버튼 클릭 이벤트
+    document.getElementById("predictBtn")
+        .addEventListener("click", handlePredict);
+
+    // 날짜 입력 필드에서 Enter 키 → 예측 실행
+    document.getElementById("dateInput")
+        .addEventListener("keydown", (e) => {
+            if (e.key === "Enter") handlePredict();
+        });
+
+    // 로그아웃 처리는 layout.js가 공통으로 담당합니다.
+
+    // 예약 버튼 (로그인 상태일 때 예약 API 호출)
+    document.getElementById("reserveBtn")
+        .addEventListener("click", async () => {
+            if (!isLoggedIn()) {
+                // 비로그인 상태: 로그인 Modal 안내
+                document.getElementById("loginBtn").click();
+                return;
+            }
+            if (!currentPrediction) return;
+
+            try {
+                // POST /reservations 호출 (4회차 API)
+                await apiPost("/reservations", {
+                    lot_id       : currentPrediction.lot_id,
+                    reserved_date: currentPrediction.target_date,
+                });
+                alert("✅ 예약이 완료되었습니다!\n내 예약 페이지에서 확인하세요.");
+            } catch (error) {
+                alert(`예약 실패: ${error.message}`);
+            }
+        });
+});
+</script>
+</body>
+</html>

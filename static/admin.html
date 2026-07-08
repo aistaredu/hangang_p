@@ -1,0 +1,951 @@
+<!DOCTYPE html>
+<!--
+=================================================================
+static/admin.html — 관리자 대시보드 (6회차)
+=================================================================
+📌 사용하는 Bootstrap 5 컴포넌트:
+  ① Navbar          : 상단 네비게이션
+  ② Offcanvas       : 모바일 사이드바 (좌측 슬라이드)
+  ③ Card            : 통계 카드 4개 + 차트 카드 + 테이블 카드
+  ④ Table           : 회원 목록 + 예약 현황
+  ⑤ Badge           : 예약 상태 / 회원 역할 색상 표시
+  ⑥ Pagination      : 회원·예약 페이지네이션
+  ⑦ Spinner         : 로딩 중 표시
+  ⑧ Alert           : 오류 메시지
+  ⑨ Form Control    : 회원 검색 input
+  ⑩ Breadcrumb      : 현재 위치 표시
+
+📌 외부 라이브러리:
+  Chart.js : 시간대별 Bar 차트
+  Bootstrap JS : Offcanvas, Spinner
+
+📌 레이아웃 구조:
+  [Navbar]
+  [Sidebar d-flex] — 좌측 사이드바(데스크탑) + 우측 콘텐츠 영역
+  모바일에서는 사이드바가 Offcanvas로 전환됨
+=================================================================
+-->
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>관리자 대시보드 — 한강공원 주차장</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { background-color: #f0f2f5; }
+
+        /* ── Sidebar 스타일 ──────────────────────────────── */
+        /*
+            d-flex 기반 2열 레이아웃:
+            좌측: #sidebar (고정 너비 220px, 전체 높이)
+            우측: #mainContent (나머지 공간 flex-grow-1)
+        */
+        #wrapper {
+            display: flex;          /* 사이드바 + 콘텐츠 가로 배치 */
+            min-height: 100vh;      /* 전체 화면 높이 */
+        }
+        #sidebar {
+            width: 220px;
+            min-width: 220px;
+            background-color: #1e2a3a;  /* 어두운 네이비 배경 */
+            color: #cbd5e1;
+            padding-top: 1rem;
+        }
+        #sidebar .nav-link {
+            color: #94a3b8;          /* 기본 텍스트 연한 회색 */
+            border-radius: 8px;
+            margin: 2px 8px;
+            padding: 10px 14px;
+            font-size: 0.9rem;
+            transition: background 0.15s;
+        }
+        #sidebar .nav-link:hover,
+        #sidebar .nav-link.active {
+            background-color: #0d6efd;  /* 호버/활성: 파란 배경 */
+            color: #fff;
+        }
+        #sidebar .sidebar-brand {
+            font-size: 1rem;
+            font-weight: bold;
+            color: #e2e8f0;
+            padding: 0 1rem 1rem;
+            border-bottom: 1px solid #334155;
+            margin-bottom: 0.5rem;
+        }
+        #mainContent {
+            flex: 1;                  /* 나머지 공간 전부 차지 */
+            overflow-y: auto;         /* 콘텐츠 스크롤 */
+            padding: 1.5rem;
+        }
+
+        /* ── 통계 카드 ────────────────────────────────────── */
+        .stat-card {
+            border: none;
+            border-radius: 12px;
+        }
+        .stat-card .stat-icon {
+            font-size: 2rem;
+            opacity: 0.8;
+        }
+        .stat-card .stat-value {
+            font-size: 2rem;
+            font-weight: 800;
+        }
+
+        /* ── Chart.js 컨테이너 ───────────────────────────── */
+        .chart-container {
+            position: relative;
+            height: 260px;
+        }
+
+        /* ── 테이블 헤더 ─────────────────────────────────── */
+        .table thead th {
+            background-color: #343a40;
+            color: #fff;
+            white-space: nowrap;
+        }
+
+        /* ── 모바일: 사이드바 숨김 ──────────────────────── */
+        @media (max-width: 768px) {
+            #sidebar { display: none !important; }
+            /* 모바일에서는 ② Offcanvas로 대체 */
+        }
+    </style>
+</head>
+<body>
+
+<!-- ===========================================================
+     ① Bootstrap 컴포넌트: Navbar (관리자 전용)
+     =========================================================== -->
+<nav class="navbar navbar-dark bg-dark shadow-sm sticky-top">
+    <!-- sticky-top: 스크롤 시 상단 고정 -->
+    <div class="container-fluid">
+        <!-- 모바일에서 Offcanvas 사이드바 토글 버튼 -->
+        <!--
+            data-bs-toggle="offcanvas"        : Offcanvas 열기 트리거
+            data-bs-target="#mobileSidebar"   : 열 Offcanvas ID
+            d-md-none                         : md(768px) 이상에서 숨김
+                                                (데스크탑에서는 사이드바가 항상 보임)
+        -->
+        <button class="btn btn-outline-light btn-sm d-md-none"
+                data-bs-toggle="offcanvas"
+                data-bs-target="#mobileSidebar">
+            ☰ 메뉴
+        </button>
+        <a class="navbar-brand fw-bold" href="/static/index.html">
+            🅿 관리자 대시보드
+        </a>
+        <div class="d-flex align-items-center gap-2">
+            <span class="text-light small" id="adminNameDisplay"></span>
+            <a href="/static/index.html" class="btn btn-outline-light btn-sm">
+                사용자 화면
+            </a>
+            <button class="btn btn-danger btn-sm" id="logoutBtn">
+                로그아웃
+            </button>
+        </div>
+    </div>
+</nav>
+
+
+<!-- ===========================================================
+     ② Bootstrap 컴포넌트: Offcanvas (모바일 사이드바)
+     ===========================================================
+     모바일(768px 미만)에서 햄버거 버튼 클릭 시 좌측에서 슬라이드
+     데스크탑에서는 #sidebar(CSS)가 항상 보이고 이 Offcanvas는 숨김
+     =========================================================== -->
+<div class="offcanvas offcanvas-start" id="mobileSidebar" tabindex="-1">
+    <!--
+        offcanvas-start : 왼쪽에서 슬라이드 진입
+        tabindex="-1"   : 키보드 탭 순서 제외 (접근성)
+    -->
+    <div class="offcanvas-header bg-dark text-white">
+        <h6 class="offcanvas-title fw-bold">🅿 관리자 메뉴</h6>
+        <button class="btn-close btn-close-white" data-bs-dismiss="offcanvas"></button>
+    </div>
+    <div class="offcanvas-body p-0 bg-dark">
+        <!-- 데스크탑 사이드바와 동일한 메뉴 구성 -->
+        <nav class="nav flex-column pt-2">
+            <a class="nav-link text-light" href="#" onclick="showSection('stats')">📊 통계</a>
+            <a class="nav-link text-light" href="#" onclick="showSection('users')">👥 회원 관리</a>
+            <a class="nav-link text-light" href="#" onclick="showSection('reservations')">📋 예약 관리</a>
+        </nav>
+    </div>
+</div>
+
+
+<!-- ===========================================================
+     Sidebar + 메인 콘텐츠 레이아웃
+     d-flex로 좌우 배치
+     =========================================================== -->
+<div id="wrapper">
+
+    <!-- ── 데스크탑 사이드바 ────────────────────────────── -->
+    <div id="sidebar">
+        <div class="sidebar-brand">🅿 관리자 메뉴</div>
+        <nav class="nav flex-column">
+            <!--
+                flex-column : 메뉴를 세로로 나열
+                nav-link    : Bootstrap 링크 스타일
+                onclick      : JS showSection()으로 섹션 전환
+            -->
+            <a class="nav-link active" href="#" onclick="showSection('stats', this)">
+                📊 통계 대시보드
+            </a>
+            <a class="nav-link" href="#" onclick="showSection('users', this)">
+                👥 회원 관리
+            </a>
+            <a class="nav-link" href="#" onclick="showSection('reservations', this)">
+                📋 예약 관리
+            </a>
+            <hr style="border-color:#334155; margin: 1rem 8px;">
+            <a class="nav-link" href="/static/index.html">
+                ← 사용자 화면으로
+            </a>
+        </nav>
+    </div>
+
+
+    <!-- ── 메인 콘텐츠 영역 ─────────────────────────────── -->
+    <div id="mainContent">
+
+        <!-- ⑩ Breadcrumb: 현재 위치 -->
+        <nav aria-label="breadcrumb" class="mb-3">
+            <ol class="breadcrumb">
+                <li class="breadcrumb-item"><a href="/static/index.html">홈</a></li>
+                <li class="breadcrumb-item active" id="breadcrumbCurrent">통계 대시보드</li>
+            </ol>
+        </nav>
+
+
+        <!-- =====================================================
+             섹션 1: 통계 대시보드 (기본 표시)
+             ===================================================== -->
+        <section id="statsSection">
+
+            <h4 class="fw-bold mb-4">📊 통계 대시보드</h4>
+
+            <!-- ── 통계 카드 4개 ────────────────────────────── -->
+            <!--
+                row-cols-1 row-cols-sm-2 row-cols-xl-4:
+                  기본: 1열 / sm(576px): 2열 / xl(1200px): 4열
+                g-3: 카드 간격 16px
+            -->
+            <div class="row row-cols-1 row-cols-sm-2 row-cols-xl-4 g-3 mb-4">
+
+                <!-- 카드1: 오늘 예약 수 -->
+                <div class="col">
+                    <!--
+                        ③ Bootstrap 컴포넌트: Card
+                        text-bg-primary : 파란 배경 + 흰 텍스트 (Bootstrap 색상 유틸리티)
+                        h-100           : 같은 행 카드 높이 통일
+                        shadow-sm       : 약한 그림자
+                    -->
+                    <div class="card text-bg-primary stat-card h-100 shadow-sm">
+                        <div class="card-body d-flex align-items-center gap-3">
+                            <div class="stat-icon">📅</div>
+                            <div>
+                                <div class="small opacity-75">오늘 예약</div>
+                                <div class="stat-value" id="todayReservations">—</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 카드2: 총 회원 수 -->
+                <div class="col">
+                    <div class="card text-bg-success stat-card h-100 shadow-sm">
+                        <div class="card-body d-flex align-items-center gap-3">
+                            <div class="stat-icon">👥</div>
+                            <div>
+                                <div class="small opacity-75">총 회원</div>
+                                <div class="stat-value" id="totalUsers">—</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 카드3: 총 예약 수 -->
+                <div class="col">
+                    <div class="card text-bg-warning stat-card h-100 shadow-sm">
+                        <div class="card-body d-flex align-items-center gap-3">
+                            <div class="stat-icon">📋</div>
+                            <div>
+                                <div class="small opacity-75">총 예약</div>
+                                <div class="stat-value" id="totalReservations">—</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 카드4: 활성 예약 수 -->
+                <div class="col">
+                    <div class="card text-bg-danger stat-card h-100 shadow-sm">
+                        <div class="card-body d-flex align-items-center gap-3">
+                            <div class="stat-icon">🟢</div>
+                            <div>
+                                <div class="small opacity-75">활성 예약</div>
+                                <div class="stat-value" id="activeReservations">—</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div><!-- /row 통계카드 -->
+
+
+            <!-- ── Chart.js 차트 2개 (2열 그리드) ──────────── -->
+            <div class="row g-3 mb-4">
+
+                <!-- 요일별 Bar Chart -->
+                <div class="col-lg-6">
+                    <div class="card shadow-sm h-100">
+                        <div class="card-header fw-bold bg-white border-bottom">
+                            📅 요일별 평균 회전율(이용률)
+                        </div>
+                        <div class="card-body">
+                            <div class="text-center py-3" id="dailySpinner">
+                                <div class="spinner-border text-primary" role="status"></div>
+                            </div>
+                            <div class="chart-container d-none" id="dailyChartWrap">
+                                <!-- Chart.js가 이 <canvas>에 그래프를 그림 -->
+                                <canvas id="dailyChart"></canvas>
+                            </div>
+                            <!-- 상대 비교 범례(색이 무엇을 뜻하는지) -->
+                            <div class="mt-2 text-center" id="dailyLegend"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 시간대별 Bar Chart (커리큘럼 7회차 핵심) -->
+                <div class="col-lg-6">
+                    <div class="card shadow-sm h-100">
+                        <div class="card-header fw-bold bg-white border-bottom">
+                            🕐 시간대별 평균 혼잡도
+                        </div>
+                        <div class="card-body">
+                            <div class="text-center py-3" id="hourlySpinner">
+                                <div class="spinner-border text-primary" role="status"></div>
+                            </div>
+                            <div class="chart-container d-none" id="hourlyChartWrap">
+                                <canvas id="hourlyChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div><!-- /row 차트 -->
+
+            <!-- 월별 Bar Chart (전체 폭) -->
+            <div class="row g-3 mb-4">
+                <div class="col-12">
+                    <div class="card shadow-sm h-100">
+                        <div class="card-header fw-bold bg-white border-bottom">
+                            📆 월별 평균 회전율(이용률)
+                        </div>
+                        <div class="card-body">
+                            <!-- 로딩 스피너: 데이터 도착 전까지 표시 -->
+                            <div class="text-center py-3" id="monthlySpinner">
+                                <div class="spinner-border text-primary" role="status"></div>
+                            </div>
+                            <!-- 실제 차트가 그려질 영역(처음엔 d-none으로 숨김) -->
+                            <div class="chart-container d-none" id="monthlyChartWrap">
+                                <canvas id="monthlyChart"></canvas>
+                            </div>
+                            <!-- 상대 비교 범례 -->
+                            <div class="mt-2 text-center" id="monthlyLegend"></div>
+                        </div>
+                    </div>
+                </div>
+            </div><!-- /row 월별 차트 -->
+
+        </section><!-- /statsSection -->
+
+
+        <!-- =====================================================
+             섹션 2: 회원 관리 (기본 숨김)
+             ===================================================== -->
+        <section id="usersSection" class="d-none">
+
+            <h4 class="fw-bold mb-4">👥 회원 관리</h4>
+
+            <!-- ③ Card: 회원 목록 테이블 -->
+            <div class="card shadow-sm">
+                <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                    <span class="fw-bold">전체 회원</span>
+                    <span class="badge bg-secondary" id="userTotalBadge">-</span>
+                </div>
+                <div class="card-body">
+                    <!-- ⑨ Form Control: 회원 검색 -->
+                    <!--
+                        input-group : input + 버튼을 한 줄로 붙이는 Bootstrap 컴포넌트
+                        mb-3        : 아래 여백
+                    -->
+                    <div class="input-group mb-3" style="max-width:360px;">
+                        <input type="text"
+                               class="form-control"
+                               id="userSearchInput"
+                               placeholder="이메일 또는 이름 검색">
+                        <!--
+                            form-control : 입력 필드 스타일
+                            btn-outline-secondary : 회색 테두리 버튼
+                        -->
+                        <button class="btn btn-outline-secondary"
+                                id="userSearchBtn">
+                            🔍 검색
+                        </button>
+                    </div>
+
+                    <!-- ⑦ Spinner -->
+                    <div class="text-center py-3 d-none" id="userSpinner">
+                        <div class="spinner-border text-primary" role="status"></div>
+                    </div>
+
+                    <!-- ④ Table: 회원 목록 -->
+                    <div class="table-responsive d-none" id="userTableWrap">
+                        <!--
+                            table-responsive : 좁은 화면에서 가로 스크롤
+                            table-striped    : 짝수 행 배경색 교대
+                            table-hover      : 마우스 올리면 행 강조
+                            table-sm         : 셀 padding 줄이기
+                        -->
+                        <table class="table table-striped table-hover table-sm mb-0">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>이메일</th>
+                                    <th>이름</th>
+                                    <th>권한</th>
+                                    <th>가입일</th>
+                                </tr>
+                            </thead>
+                            <tbody id="userTableBody"></tbody>
+                        </table>
+                    </div>
+
+                    <!-- ⑧ Alert: 검색 결과 없음 -->
+                    <div class="alert alert-light text-center d-none" id="userEmpty">
+                        검색 결과가 없습니다.
+                    </div>
+                </div>
+                <!-- ⑥ Pagination -->
+                <div class="card-footer bg-white">
+                    <ul class="pagination pagination-sm justify-content-center mb-0"
+                        id="userPagination"></ul>
+                </div>
+            </div>
+
+        </section><!-- /usersSection -->
+
+
+        <!-- =====================================================
+             섹션 3: 예약 관리 (기본 숨김)
+             ===================================================== -->
+        <section id="reservationsSection" class="d-none">
+
+            <h4 class="fw-bold mb-4">📋 예약 관리</h4>
+
+            <div class="card shadow-sm">
+                <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                    <span class="fw-bold">전체 예약</span>
+                    <span class="badge bg-secondary" id="reservationTotalBadge">-</span>
+                </div>
+                <div class="card-body p-0">
+
+                    <div class="text-center py-3 d-none" id="reservationSpinner">
+                        <div class="spinner-border text-primary" role="status"></div>
+                    </div>
+
+                    <div class="table-responsive d-none" id="reservationTableWrap">
+                        <table class="table table-striped table-hover table-sm mb-0">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>회원</th>
+                                    <th>주차장</th>
+                                    <th>예약일</th>
+                                    <th>상태</th>
+                                    <th>생성일</th>
+                                </tr>
+                            </thead>
+                            <tbody id="reservationTableBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="card-footer bg-white">
+                    <ul class="pagination pagination-sm justify-content-center mb-0"
+                        id="reservationPagination"></ul>
+                </div>
+            </div>
+
+        </section><!-- /reservationsSection -->
+
+    </div><!-- /mainContent -->
+</div><!-- /wrapper -->
+
+
+<!-- Bootstrap 5 JS (Offcanvas, Spinner 동작에 필수) -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+<!--
+    Chart.js: Bootstrap JS 이후, api.js 이전에 로드
+    순서: Bootstrap JS → Chart.js → api.js → 내 스크립트
+-->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+<!-- api.js: apiGet, getToken, removeToken, isLoggedIn -->
+<script src="/static/js/api.js"></script>
+
+<script>
+// =============================================================
+// 전역 설정
+// =============================================================
+const USER_PAGE_SIZE        = 15;
+const RESERVATION_PAGE_SIZE = 15;
+
+// 현재 검색 키워드 (회원 검색에서 사용)
+let userSearchKeyword = "";
+
+
+// =============================================================
+// checkAdminAccess() — JWT 디코딩으로 관리자 권한 확인
+// =============================================================
+// 📌 클라이언트 권한 확인 (UX 목적):
+//   서버의 get_admin_user_id() Depends가 실제 보안을 담당합니다.
+//   클라이언트에서는 비관리자가 빈 화면을 보지 않도록 리다이렉트합니다.
+// =============================================================
+function checkAdminAccess() {
+    const token = getToken();
+    if (!token) {
+        alert("관리자 로그인이 필요합니다.");
+        window.location.href = "/static/index.html";
+        return false;
+    }
+    // api.js의 공통 함수로 페이로드를 읽는다(직접 atob 디코딩 대신 재사용)
+    const payload = getPayload();   // { user_id, role } 또는 null
+    if (!payload) {
+        alert("유효하지 않은 토큰입니다.");
+        window.location.href = "/static/index.html";
+        return false;
+    }
+    if (payload.role !== "admin") {
+        alert("관리자 권한이 필요합니다.");
+        window.location.href = "/static/index.html";
+        return false;
+    }
+    document.getElementById("adminNameDisplay").textContent =
+        `👤 관리자 (ID: ${payload.user_id})`;
+    return true;
+}
+
+
+// =============================================================
+// showSection(name, el) — 섹션 전환 + 사이드바 활성 표시
+// =============================================================
+function showSection(name, el) {
+    // 모든 섹션 숨기기
+    ["statsSection", "usersSection", "reservationsSection"]
+        .forEach(id => document.getElementById(id).classList.add("d-none"));
+
+    // 선택한 섹션만 표시
+    document.getElementById(`${name}Section`).classList.remove("d-none");
+
+    // 사이드바 active 클래스 이동
+    document.querySelectorAll("#sidebar .nav-link")
+        .forEach(a => a.classList.remove("active"));
+    if (el) el.classList.add("active");
+
+    // Breadcrumb 업데이트
+    const names = { stats: "통계 대시보드", users: "회원 관리", reservations: "예약 관리" };
+    document.getElementById("breadcrumbCurrent").textContent = names[name] || name;
+
+    // 모바일 Offcanvas 닫기
+    const offcanvas = bootstrap.Offcanvas.getInstance(document.getElementById("mobileSidebar"));
+    if (offcanvas) offcanvas.hide();
+}
+
+
+// =============================================================
+// loadSummaryCards() — 통계 카드 4개 로드
+// =============================================================
+async function loadSummaryCards() {
+    try {
+        // ── 요약 통계를 '서버 집계' API 한 번으로 가져온다 ──────
+        // 개선 전: 예약 전체를 size=1000으로 받아 JS에서 filter로 셈
+        //   → 1000건 초과 시 숫자 누락, 매번 대량 전송으로 비효율
+        // 개선 후: 서버가 COUNT로 정확히 집계해 4개 값을 한 번에 반환
+        //   { total_users, total_reservations, today_reservations, active_reservations }
+        const s = await apiGet("/admin/stats/summary");
+
+        // toLocaleString(): 1234 → "1,234" 천 단위 콤마 표시
+        document.getElementById("totalUsers").textContent        = s.total_users.toLocaleString();
+        document.getElementById("totalReservations").textContent = s.total_reservations.toLocaleString();
+        document.getElementById("todayReservations").textContent = s.today_reservations.toLocaleString();
+        document.getElementById("activeReservations").textContent = s.active_reservations.toLocaleString();
+
+    } catch (error) {
+        // 카드 로드 실패는 화면을 막지 않고 콘솔에만 기록
+        console.error("통계 카드 로드 실패:", error.message);
+    }
+}
+
+
+// =============================================================
+// relativeColors(values) — 값들을 상대 비교해 4단계 색으로 매핑
+// =============================================================
+// 📌 절대 기준(100/200/350%)이 아니라, 주어진 값들의 '최소~최대'를
+//    4등분해서 상대적으로 낮음→높음을 색으로 표현한다.
+//    → 값이 275~401처럼 좁은 범위에 몰려 있어도 요일/월 간 차이가 잘 보인다.
+// 반환: { colors: [막대별 색], legend: [{label, color, range}] }
+// 등급 이름·색을 predict 화면과 통일한다(여유/보통/붐빔/매우 붐빔).
+// 단, 경계는 고정값이 아니라 '상대 비교'로 잡는다(값 범위를 4등분).
+//   → 두 화면의 색·단어가 같아 일관되게 보이면서,
+//     대시보드는 요일/월 간 차이를 잘 드러낸다.
+const GRADE_COLORS = [
+    "rgba(25,135,84,0.8)",   // 여유(초록)  = predict #198754
+    "rgba(13,110,253,0.8)",  // 보통(파랑)  = predict #0d6efd
+    "rgba(255,193,7,0.8)",   // 붐빔(노랑)  = predict #ffc107
+    "rgba(220,53,69,0.8)",   // 매우 붐빔(빨강) = predict #dc3545
+];
+const GRADE_NAMES = ["여유", "보통", "붐빔", "매우 붐빔"];
+
+function relativeColors(values) {
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const span = (max - min) || 1;         // 전부 같은 값이면 0 나누기 방지
+    const step = span / 4;                 // 범위를 4등분
+
+    // 각 값이 몇 번째 구간(0~3)에 드는지 계산해 색을 매김
+    const bucketOf = (v) => Math.min(3, Math.floor((v - min) / step));
+    const colors = values.map(v => GRADE_COLORS[bucketOf(v)]);
+
+    // 범례: 각 구간의 색·이름·값 범위(%)
+    const legend = GRADE_NAMES.map((name, i) => ({
+        label: name,
+        color: GRADE_COLORS[i],
+        range: `${Math.round(min + step * i)}~${Math.round(min + step * (i + 1))}%`,
+    }));
+    return { colors, legend };
+}
+
+// 범례를 지정한 컨테이너에 그린다 (색 네모 + 이름 + 값 범위)
+function renderLegend(containerId, legend) {
+    const el = document.getElementById(containerId);
+    if (!el) return;
+    const items = legend.map(g => `
+        <span class="d-inline-flex align-items-center me-3 mb-1 small">
+            <span style="display:inline-block;width:12px;height:12px;border-radius:3px;
+                         background:${g.color};margin-right:4px;"></span>
+            ${g.label} <span class="text-muted ms-1">(${g.range})</span>
+        </span>
+    `).join("");
+    // 이 색은 '이 차트 안에서의 상대적 수준'이라는 점을 명시(절대 기준인 예측 화면과 구분)
+    el.innerHTML = items +
+        `<div class="text-muted mt-1" style="font-size:0.75rem;">
+            ※ 색은 이 차트 내 상대 비교입니다(예측 화면의 절대 등급과 기준이 다를 수 있음)
+         </div>`;
+}
+
+
+// =============================================================
+// loadDailyChart() — 요일별 평균 회전율 Bar Chart
+// =============================================================
+async function loadDailyChart() {
+    try {
+        // GET /admin/stats/daily → 요일별 평균 혼잡도
+        const data = await apiGet("/admin/stats/daily");
+
+        document.getElementById("dailySpinner").classList.add("d-none");
+        document.getElementById("dailyChartWrap").classList.remove("d-none");
+
+        const labels = data.map(d => `${d.day_name}요일`);
+        const values = data.map(d => d.avg_occupancy_pct);
+        // 상대 비교: 값 범위를 4등분해 색을 매기고 범례를 그린다
+        const { colors, legend } = relativeColors(values);
+        renderLegend("dailyLegend", legend);
+
+        new Chart(document.getElementById("dailyChart"), {
+            type: "bar",
+            data: {
+                labels,
+                datasets: [{ label: "평균 회전율(%)", data: values, backgroundColor: colors, borderRadius: 6 }],
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: { y: { beginAtZero: true, ticks: { callback: v => `${v}%` } } },  // max 제거: 회전율은 100%를 넘을 수 있음
+            },
+        });
+    } catch (e) {
+        document.getElementById("dailySpinner").innerHTML =
+            `<div class="text-danger small">로드 실패: ${e.message}</div>`;
+    }
+}
+
+
+// =============================================================
+// loadHourlyChart() — 시간대별 평균 혼잡도 Bar Chart
+// =============================================================
+// 📌 GET /admin/stats/hourly API 호출
+//   parking_daily에 시간 데이터가 없으므로
+//   예약(reservation) 데이터의 시간대별 건수로 시각화합니다.
+//   실제 데이터가 없을 때는 시뮬레이션 데이터로 차트를 표시합니다.
+// =============================================================
+async function loadHourlyChart() {
+    try {
+        const data = await apiGet("/admin/stats/hourly");
+
+        document.getElementById("hourlySpinner").classList.add("d-none");
+        document.getElementById("hourlyChartWrap").classList.remove("d-none");
+
+        const labels = data.map(d => `${d.hour}시`);
+        const values = data.map(d => d.avg_count);
+
+        new Chart(document.getElementById("hourlyChart"), {
+            type: "bar",
+            data: {
+                labels,
+                datasets: [{
+                    label: "평균 예약 건수",
+                    data: values,
+                    backgroundColor: "rgba(13,110,253,0.7)",
+                    borderRadius: 4,
+                }],
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: { y: { beginAtZero: true } },
+            },
+        });
+    } catch (e) {
+        document.getElementById("hourlySpinner").innerHTML =
+            `<div class="text-danger small">로드 실패: ${e.message}</div>`;
+    }
+}
+
+
+// =============================================================
+// loadMonthlyChart() — 월별 평균 혼잡도 Bar Chart
+// =============================================================
+// 📌 GET /admin/stats/monthly 호출
+//   응답: [{ month: 1~12, avg_occupancy_pct: 숫자 }, ...]
+//   admin.py에 API는 있었지만 화면에서 안 쓰던 것을 연결한다.
+// =============================================================
+async function loadMonthlyChart() {
+    try {
+        const data = await apiGet("/admin/stats/monthly");
+
+        // 로딩 스피너 숨기고 차트 영역 표시
+        document.getElementById("monthlySpinner").classList.add("d-none");
+        document.getElementById("monthlyChartWrap").classList.remove("d-none");
+
+        // x축 라벨("1월"~"12월")과 y축 값(평균 회전율%) 분리
+        const labels = data.map(d => `${d.month}월`);
+        const values = data.map(d => d.avg_occupancy_pct);
+        // 상대 비교: 값 범위 4등분 색상 + 범례
+        const { colors, legend } = relativeColors(values);
+        renderLegend("monthlyLegend", legend);
+
+        new Chart(document.getElementById("monthlyChart"), {
+            type: "bar",
+            data: {
+                labels,
+                datasets: [{ label: "평균 회전율(%)", data: values, backgroundColor: colors, borderRadius: 6 }],
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                // y축 0~100%, 눈금에 % 표시
+                scales: { y: { beginAtZero: true, ticks: { callback: v => `${v}%` } } },  // max 제거: 회전율은 100%를 넘을 수 있음
+            },
+        });
+    } catch (e) {
+        document.getElementById("monthlySpinner").innerHTML =
+            `<div class="text-danger small">로드 실패: ${e.message}</div>`;
+    }
+}
+
+
+// =============================================================
+// loadUsers(page, keyword) — 회원 목록 로드 (검색 포함)
+// =============================================================
+async function loadUsers(page = 1, keyword = "") {
+    document.getElementById("userSpinner").classList.remove("d-none");
+    document.getElementById("userTableWrap").classList.add("d-none");
+    document.getElementById("userEmpty").classList.add("d-none");
+
+    try {
+        // GET /admin/users?page=N&size=15&search=키워드
+        const url = keyword
+            ? `/admin/users?page=${page}&size=${USER_PAGE_SIZE}&search=${encodeURIComponent(keyword)}`
+            : `/admin/users?page=${page}&size=${USER_PAGE_SIZE}`;
+        const data = await apiGet(url);
+
+        document.getElementById("userTotalBadge").textContent = `총 ${data.total}명`;
+
+        if (data.items.length === 0) {
+            document.getElementById("userEmpty").classList.remove("d-none");
+        } else {
+            const tbody = document.getElementById("userTableBody");
+            tbody.innerHTML = data.items.map(u => `
+                <tr>
+                    <td class="text-muted">${u.id}</td>
+                    <td>${u.email}</td>
+                    <td>${u.name}</td>
+                    <td>
+                        <!--
+                            ⑤ Badge: 권한 표시
+                            text-bg-danger     : 빨간 배경 (관리자)
+                            text-bg-secondary  : 회색 배경 (일반)
+                        -->
+                        <span class="badge ${u.role === "admin" ? "text-bg-danger" : "text-bg-secondary"}">
+                            ${u.role}
+                        </span>
+                    </td>
+                    <td class="small">${fmtDate(u.created_at)}</td>
+                </tr>
+            `).join("");
+            document.getElementById("userTableWrap").classList.remove("d-none");
+        }
+
+        renderPagination("userPagination", data.total, page, USER_PAGE_SIZE,
+            p => loadUsers(p, userSearchKeyword));
+
+    } catch (e) {
+        document.getElementById("userTableWrap").innerHTML =
+            `<div class="alert alert-danger m-3">로드 실패: ${e.message}</div>`;
+        document.getElementById("userTableWrap").classList.remove("d-none");
+    } finally {
+        document.getElementById("userSpinner").classList.add("d-none");
+    }
+}
+
+
+// =============================================================
+// loadReservations(page) — 예약 목록 로드
+// =============================================================
+async function loadReservations(page = 1) {
+    document.getElementById("reservationSpinner").classList.remove("d-none");
+    document.getElementById("reservationTableWrap").classList.add("d-none");
+
+    try {
+        const data = await apiGet(`/admin/reservations?page=${page}&size=${RESERVATION_PAGE_SIZE}`);
+        document.getElementById("reservationTotalBadge").textContent = `총 ${data.total}건`;
+
+        // 예약 상태별 Badge 색상
+        const statusBadge = {
+            "active"   : "text-bg-success",
+            "completed": "text-bg-primary",
+            "cancelled": "text-bg-secondary",
+        };
+
+        document.getElementById("reservationTableBody").innerHTML =
+            data.items.map(r => `
+                <tr>
+                    <td class="text-muted">${r.id}</td>
+                    <td class="small">${r.user_id}</td>
+                    <td>${r.lot_name}</td>
+                    <td>${r.reserved_date}</td>
+                    <td>
+                        <span class="badge ${statusBadge[r.status] || "text-bg-secondary"}">
+                            ${r.status}
+                        </span>
+                    </td>
+                    <td class="small">${fmtDate(r.created_at)}</td>
+                </tr>
+            `).join("");
+
+        document.getElementById("reservationTableWrap").classList.remove("d-none");
+        renderPagination("reservationPagination", data.total, page,
+            RESERVATION_PAGE_SIZE, loadReservations);
+
+    } catch (e) {
+        document.getElementById("reservationSpinner").innerHTML =
+            `<div class="alert alert-danger mx-3">로드 실패: ${e.message}</div>`;
+    } finally {
+        document.getElementById("reservationSpinner").classList.add("d-none");
+    }
+}
+
+
+// =============================================================
+// renderPagination() — ⑥ 공통 페이지네이션 렌더링
+// =============================================================
+function renderPagination(ulId, total, currentPage, pageSize, loadFn) {
+    const totalPages = Math.ceil(total / pageSize);
+    const ul = document.getElementById(ulId);
+    if (totalPages <= 1) { ul.innerHTML = ""; return; }
+
+    let html = "";
+    for (let i = 1; i <= totalPages; i++) {
+        html += `
+            <li class="page-item ${i === currentPage ? "active" : ""}">
+                <button class="page-link" onclick="(${loadFn.toString()})(${i})">
+                    ${i}
+                </button>
+            </li>`;
+    }
+    ul.innerHTML = html;
+}
+
+
+// =============================================================
+// fmtDate() — 날짜 포맷 변환 유틸리티
+// =============================================================
+function fmtDate(s) {
+    if (!s) return "—";
+    return String(s).slice(0, 16).replace("T", " ");
+    // "2025-08-15T10:30:00" → "2025-08-15 10:30"
+}
+
+
+// =============================================================
+// DOMContentLoaded — 초기화
+// =============================================================
+document.addEventListener("DOMContentLoaded", () => {
+    // 1) 관리자 접근 권한 확인
+    if (!checkAdminAccess()) return;
+
+    // 2) 통계 섹션 데이터 로드
+    loadSummaryCards();
+    loadDailyChart();
+    loadHourlyChart();
+    loadMonthlyChart();
+
+    // 3) 회원/예약 섹션 데이터 로드 (섹션 전환 시 자동 로드)
+    //    섹션 전환은 showSection()에서 처리
+
+    // 4) 로그아웃
+    document.getElementById("logoutBtn").addEventListener("click", () => {
+        removeToken();
+        localStorage.removeItem("user_name");
+        window.location.href = "/static/index.html";
+    });
+
+    // 5) 회원 검색 버튼
+    document.getElementById("userSearchBtn").addEventListener("click", () => {
+        userSearchKeyword = document.getElementById("userSearchInput").value.trim();
+        loadUsers(1, userSearchKeyword);
+    });
+
+    // 6) 검색 Enter 키
+    document.getElementById("userSearchInput").addEventListener("keydown", e => {
+        if (e.key === "Enter") {
+            userSearchKeyword = e.target.value.trim();
+            loadUsers(1, userSearchKeyword);
+        }
+    });
+
+    // 7) 사이드바 메뉴 클릭 → 각 섹션 데이터 로드
+    document.querySelectorAll("#sidebar .nav-link").forEach(link => {
+        link.addEventListener("click", () => {
+            const section = link.textContent.trim();
+            if (section.includes("회원")) loadUsers(1);
+            if (section.includes("예약")) loadReservations(1);
+        });
+    });
+});
+</script>
+</body>
+</html>
