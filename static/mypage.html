@@ -55,17 +55,244 @@ static/mypage.html — 내 예약 화면 (4회차 완성)
 </head>
 <body>
 
-<!-- =============================================================
-     ① Bootstrap 컴포넌트: Navbar
-     (index.html Navbar와 동일한 구조 — 로그인 상태 반영)
-     ============================================================= -->
 <!-- navbar: layout.js가 채워 넣음 (공통) -->
 <div id="navbar-placeholder"></div>
 
 
+<!-- 로그인 모달은 layout.js가 공통으로 삽입 -->
+
+
 <!-- =============================================================
-     로그인 Modal (index.html과 동일 — 비로그인 접근 시 자동 오픈)
+     ⑥ Bootstrap 컴포넌트: Modal (예약 취소 확인)
+     =============================================================
+     예약 취소는 되돌릴 수 없는 작업이므로
+     실수 방지를 위해 Confirm Modal을 사용합니다.
+
+     modal-dialog-centered : 화면 수직 중앙에 Modal 표시
      ============================================================= -->
+<div class="modal fade" id="cancelModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title fw-bold">⚠️ 예약 취소</h5>
+                <button type="button" class="btn-close"
+                        data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-1">정말로 예약을 취소하시겠습니까?</p>
+                <!-- 취소할 예약 정보 표시 (JS로 동적 변경) -->
+                <p class="text-muted small" id="cancelModalInfo"></p>
+                <p class="text-danger small mb-0">⚠️ 취소 후에는 되돌릴 수 없습니다.</p>
+            </div>
+            <div class="modal-footer border-0">
+                <!-- data-bs-dismiss="modal": 클릭 시 Modal 닫기 -->
+                <button type="button" class="btn btn-secondary"
+                        data-bs-dismiss="modal">
+                    돌아가기
+                </button>
+                <!-- 확인 버튼: JS에서 이벤트 등록 -->
+                <button type="button" class="btn btn-danger fw-bold"
+                        id="confirmCancelBtn">
+                    취소 확인
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+<!-- =============================================================
+     ⑤ Bootstrap 컴포넌트: Offcanvas (예약 상세 슬라이드 패널)
+     =============================================================
+     Offcanvas: 화면 가장자리에서 슬라이드로 등장하는 패널
+     오른쪽("end")에서 나타납니다.
+
+     Offcanvas 구조:
+       .offcanvas           : 최상위 래퍼
+       .offcanvas-header    : 제목 + 닫기 버튼
+       .offcanvas-body      : 상세 내용
+
+     offcanvas-end : 오른쪽에서 슬라이드
+     (offcanvas-start: 왼쪽, offcanvas-top: 위쪽, offcanvas-bottom: 아래쪽)
+     ============================================================= -->
+<div class="offcanvas offcanvas-end" tabindex="-1" id="detailPanel">
+    <div class="offcanvas-header border-bottom">
+        <h5 class="offcanvas-title fw-bold">📋 예약 상세</h5>
+        <!-- data-bs-dismiss="offcanvas": 클릭 시 Offcanvas 닫기 -->
+        <button type="button" class="btn-close"
+                data-bs-dismiss="offcanvas"></button>
+    </div>
+
+    <!-- Offcanvas 본문: 예약 상세 정보 (JS로 동적 채움) -->
+    <div class="offcanvas-body">
+
+        <!-- 주차장 정보 섹션 -->
+        <div class="mb-4">
+            <p class="text-muted small mb-1 fw-bold">📍 주차장</p>
+            <h5 class="fw-bold" id="detailLotName">—</h5>
+        </div>
+
+        <!-- 예약 정보 섹션 -->
+        <div class="row mb-4 g-3">
+            <div class="col-6">
+                <p class="text-muted small mb-1">예약 날짜</p>
+                <p class="fw-bold mb-0" id="detailDate">—</p>
+            </div>
+            <div class="col-6">
+                <p class="text-muted small mb-1">상태</p>
+                <!-- Badge는 JS로 동적으로 채움 -->
+                <span class="badge" id="detailStatusBadge">—</span>
+            </div>
+            <div class="col-6">
+                <p class="text-muted small mb-1">예약 번호</p>
+                <p class="fw-bold mb-0" id="detailId">—</p>
+            </div>
+            <div class="col-6">
+                <p class="text-muted small mb-1">예약 일시</p>
+                <p class="fw-bold mb-0 small" id="detailCreatedAt">—</p>
+            </div>
+        </div>
+
+        <hr>
+
+        <!-- 취소 버튼 (active 상태일 때만 JS로 표시) -->
+        <!-- w-100: width 100% (가득 차는 버튼) -->
+        <button class="btn btn-danger w-100 fw-bold d-none"
+                id="cancelBtn">
+            🗑️ 예약 취소
+        </button>
+
+        <!-- 이미 취소된 경우 안내 메시지 -->
+        <div class="alert alert-secondary d-none" id="alreadyCancelledMsg">
+            이미 취소된 예약입니다.
+        </div>
+
+    </div><!-- /offcanvas-body -->
+</div><!-- /offcanvas -->
+
+
+<!-- =============================================================
+     ⑩ Toast 알림
+     ============================================================= -->
+<div class="toast-container">
+    <div id="liveToast" class="toast align-items-center border-0" role="alert">
+        <div class="d-flex">
+            <div class="toast-body fw-bold" id="toastMessage"></div>
+            <button type="button" class="btn-close btn-close-white me-2 m-auto"
+                    data-bs-dismiss="toast"></button>
+        </div>
+    </div>
+</div>
+
+
+<!-- =============================================================
+     메인 콘텐츠
+     ============================================================= -->
+<div class="container mt-4">
+
+    <!-- 페이지 제목 -->
+    <div class="row mb-3">
+        <div class="col">
+            <h2 class="fw-bold">내 예약 내역</h2>
+            <p class="text-muted mb-0">예약 항목을 클릭하면 상세 정보와 취소 버튼이 표시됩니다</p>
+        </div>
+    </div>
+
+    <!-- ==========================================================
+         ② Bootstrap 컴포넌트: Nav + Tab (상태별 필터 탭)
+         ==========================================================
+         nav-tabs  : 탭 스타일 네비게이션
+         nav-fill  : 탭을 컨테이너 너비에 맞게 균등 분배
+
+         data-bs-toggle="tab"       : 탭 전환 기능 활성화
+         data-bs-target="#tabId"    : 전환할 패널 ID
+         ========================================================== -->
+    <ul class="nav nav-tabs nav-fill mb-3" id="reservationTabs">
+        <li class="nav-item">
+            <!-- active: 기본으로 선택된 탭 -->
+            <button class="nav-link active fw-bold"
+                    data-bs-toggle="tab"
+                    data-bs-target="#allPane"
+                    data-status="">
+                전체
+            </button>
+            <!-- data-status="": 상태 필터 없음 (전체 조회) -->
+        </li>
+        <li class="nav-item">
+            <button class="nav-link fw-bold"
+                    data-bs-toggle="tab"
+                    data-bs-target="#activePane"
+                    data-status="active">
+                🟢 예약중
+            </button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link fw-bold"
+                    data-bs-toggle="tab"
+                    data-bs-target="#completedPane"
+                    data-status="completed">
+                ✅ 완료
+            </button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link fw-bold"
+                    data-bs-toggle="tab"
+                    data-bs-target="#cancelledPane"
+                    data-status="cancelled">
+                ❌ 취소
+            </button>
+        </li>
+    </ul>
+
+    <!-- 탭 패널 컨테이너
+         tab-content: 탭 전환 시 패널 보이기/숨기기를 Bootstrap이 자동 처리 -->
+    <div class="tab-content">
+
+        <!-- 전체 탭 패널
+             tab-pane   : 탭 패널 기본 스타일
+             fade       : 전환 시 페이드 애니메이션
+             show active: 기본으로 보이는 패널 -->
+        <div class="tab-pane fade show active" id="allPane">
+            <!-- ⑧ Spinner: 로딩 중 표시 -->
+            <div class="text-center py-4 d-none" id="allLoading">
+                <div class="spinner-border text-primary spinner-border-sm"></div>
+                <span class="ms-2 text-muted">불러오는 중...</span>
+            </div>
+            <!-- ③ List Group: 예약 목록 컨테이너 -->
+            <div class="list-group" id="allList"></div>
+        </div>
+
+        <!-- 예약중 탭 패널 -->
+        <div class="tab-pane fade" id="activePane">
+            <div class="text-center py-4 d-none" id="activeLoading">
+                <div class="spinner-border text-primary spinner-border-sm"></div>
+                <span class="ms-2 text-muted">불러오는 중...</span>
+            </div>
+            <div class="list-group" id="activeList"></div>
+        </div>
+
+        <!-- 완료 탭 패널 -->
+        <div class="tab-pane fade" id="completedPane">
+            <div class="text-center py-4 d-none" id="completedLoading">
+                <div class="spinner-border text-primary spinner-border-sm"></div>
+                <span class="ms-2 text-muted">불러오는 중...</span>
+            </div>
+            <div class="list-group" id="completedList"></div>
+        </div>
+
+        <!-- 취소 탭 패널 -->
+        <div class="tab-pane fade" id="cancelledPane">
+            <div class="text-center py-4 d-none" id="cancelledLoading">
+                <div class="spinner-border text-primary spinner-border-sm"></div>
+                <span class="ms-2 text-muted">불러오는 중...</span>
+            </div>
+            <div class="list-group" id="cancelledList"></div>
+        </div>
+
+    </div><!-- /tab-content -->
+</div><!-- /container -->
+
+
 <!-- footer: layout.js가 채워 넣음 (공통) -->
 <div id="footer-placeholder"></div>
 
@@ -98,7 +325,7 @@ const STATUS_CONFIG = {
 
 
 // =============================================================
-// showToast()와 Navbar 상태 전환은 공통 파일(layout.js)의 전역 함수를 사용한다.
+// showToast() 와 Navbar 상태 전환은 공통 파일(layout.js)의 전역 함수를 사용한다.
 //   (여기서 다시 선언하면 layout.js의 함수를 덮어쓰므로 선언하지 않음)
 // =============================================================
 
